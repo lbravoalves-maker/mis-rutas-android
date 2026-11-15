@@ -1,0 +1,117 @@
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #101827;
+  color: white;
+}
+
+header {
+  background: #172338;
+  padding: 25px 20px;
+  text-align: center;
+  border-bottom: 1px solid #34445c;
+}
+
+header h1 {
+  font-size: 28px;
+  margin: 0;
+}
+
+header p {
+  color: #aab6c8;
+}
+
+main {
+  max-width: 600px;
+  margin: auto;
+  padding: 20px;
+}
+
+button {
+  border: none;
+  border-radius: 12px;
+  padding: 14px;
+  background: #3478f6;
+  color: white;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+#add {
+  width: 100%;
+  margin-bottom: 25px;
+}
+
+section {
+  margin-bottom: 25px;
+}
+
+section h2 {
+  color: #8eb5ff;
+  font-size: 18px;
+}
+
+.route {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  margin: 9px 0;
+  background: #1a2940;
+  border: 1px solid #34445c;
+  border-radius: 12px;
+}
+
+.route strong {
+  color: #8eb5ff;
+}
+
+.route span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.route button {
+  background: #56313a;
+  padding: 8px 12px;
+}
+
+dialog {
+  width: 90%;
+  max-width: 400px;
+  background: #1a2940;
+  color: white;
+  border: 1px solid #43536b;
+  border-radius: 18px;
+  padding: 22px;
+}
+
+dialog::backdrop {
+  background: #000b;
+}
+
+label {
+  display: block;
+  margin: 15px 0 6px;
+}
+
+input, select {
+  width: 100%;
+  padding: 13px;
+  margin: 7px 0;
+  border-radius: 9px;
+  border: 1px solid #43536b;
+  background: #101827;
+  color: white;
+  font-size: 16px;
+}
+
+dialog button {
+  margin-top: 15px;
+}
