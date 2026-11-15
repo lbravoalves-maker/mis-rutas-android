@@ -1,0 +1,162 @@
+
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Preferences } from '@capacitor/preferences';
+import './style.css';
+
+const days = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+const app = document.querySelector('#app');
+let routes = [];
+
+async function save() {
+  await Preferences.set({
+    key: 'routes',
+    value: JSON.stringify(routes)
+  });
+}
+
+async function notify(route) {
+  try {
+    await LocalNotifications.cancel({
+      notifications: [{ id: route.id }]
+    });
+
+    let permission = await LocalNotifications.checkPermissions();
+
+    if (permission.display !== 'granted') {
+      permission = await LocalNotifications.requestPermissions();
+    }
+
+    if (permission.display !== 'granted') return;
+
+    const [hour, minute] = route.time.split(':').map(Number);
+    const date = new Date();
+    let difference = (route.day - date.getDay() + 7) % 7;
+
+    date.setDate(date.getDate() + difference);
+    date.setHours(hour, minute, 0, 0);
+
+    if (date <= new Date()) date.setDate(date.getDate() + 7);
+
+    date.setMinutes(date.getMinutes() - 30);
+
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: route.id,
+        title: '¡Tu ruta comienza pronto!',
+        body: route.title + ' comienza en 30 minutos.',
+        schedule: {
+          at: date,
+          every: 'week',
+          allowWhileIdle: true
+        },
+        sound: 'default'
+      }]
+    });
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function render() {
+  app.innerHTML = `
+    <header>
+      <h1>🚗 Mis Rutas</h1>
+      <p>Organiza tu semana</p>
+    </header>
+
+    <main>
+      <button id="add">＋ Agregar ruta</button>
+      <div id="routes"></div>
+    </main>
+
+    <dialog id="dialog">
+      <form id="form">
+        <h2>Nueva ruta</h2>
+
+        <label>Nombre de la ruta</label>
+        <input id="title" required placeholder="Ej. Lakewood">
+
+        <label>Día de la semana</label>
+        <select id="day">
+          ${days.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}
+        </select>
+
+        <label>Hora de la ruta</label>
+        <input id="time" type="time" value="08:00" required>
+
+        <button type="submit">Guardar</button>
+        <button type="button" id="close">Cancelar</button>
+      </form>
+    </dialog>
+  `;
+
+  const list = document.querySelector('#routes');
+
+  list.innerHTML = days.map((day,i) => {
+    const items = routes.filter(r => r.day === i);
+
+    if (!items.length) return '';
+
+    return `
+      <section>
+        <h2>${day}</h2>
+        ${items.map(r => `
+          <div class="route">
+            <strong>${r.time}</strong>
+            <span>${r.title}</span>
+            <button data-delete="${r.id}">✕</button>
+          </div>
+        `).join('')}
+      </section>
+    `;
+  }).join('') || '<p>No tienes rutas todavía.</p>';
+
+  document.querySelector('#add').onclick = () => {
+    document.querySelector('#dialog').showModal();
+  };
+
+  document.querySelector('#close').onclick = () => {
+    document.querySelector('#dialog').close();
+  };
+
+  document.querySelectorAll('[data-delete]').forEach(button => {
+    button.onclick = async () => {
+      const id = Number(button.dataset.delete);
+
+      await LocalNotifications.cancel({
+        notifications: [{ id }]
+      });
+
+      routes = routes.filter(r => r.id !== id);
+      await save();
+      render();
+    };
+  });
+
+  document.querySelector('#form').onsubmit = async event => {
+    event.preventDefault();
+
+    const route = {
+      id: Math.floor(Math.random() * 2000000000) + 1,
+      title: document.querySelector('#title').value.trim(),
+      day: Number(document.querySelector('#day').value),
+      time: document.querySelector('#time').value
+    };
+
+    routes.push(route);
+
+    await save();
+    await notify(route);
+
+    document.querySelector('#dialog').close();
+    render();
+  };
+}
+
+async function start() {
+  const saved = await Preferences.get({ key: 'routes' });
+  routes = saved.value ? JSON.parse(saved.value) : [];
+  render();
+}
+
+start();
