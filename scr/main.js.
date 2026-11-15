@@ -1,4 +1,3 @@
-
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Preferences } from '@capacitor/preferences';
 import './style.css';
@@ -6,6 +5,7 @@ import './style.css';
 const days = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 const app = document.querySelector('#app');
 let routes = [];
+let editingId = null;
 
 async function save() {
   await Preferences.set({
@@ -14,12 +14,22 @@ async function save() {
   });
 }
 
-async function notify(route) {
+async function cancelReminder(id) {
   try {
     await LocalNotifications.cancel({
-      notifications: [{ id: route.id }]
+      notifications: [{ id: Number(id) }]
     });
+  } catch (e) {
+    console.log(e);
+  }
+}
 
+async function notify(route) {
+  await cancelReminder(route.id);
+
+  if (route.reminderEnabled === false) return;
+
+  try {
     let permission = await LocalNotifications.checkPermissions();
 
     if (permission.display !== 'granted') {
@@ -28,33 +38,47 @@ async function notify(route) {
 
     if (permission.display !== 'granted') return;
 
+    const minutes = Number(route.reminderMinutes || 30);
     const [hour, minute] = route.time.split(':').map(Number);
+
+    const now = new Date();
     const date = new Date();
-    let difference = (route.day - date.getDay() + 7) % 7;
+
+    const difference = (route.day - now.getDay() + 7) % 7;
 
     date.setDate(date.getDate() + difference);
     date.setHours(hour, minute, 0, 0);
 
-    if (date <= new Date()) date.setDate(date.getDate() + 7);
+    let reminderDate = new Date(date.getTime() - minutes * 60000);
 
-    date.setMinutes(date.getMinutes() - 30);
+    while (reminderDate <= now) {
+      date.setDate(date.getDate() + 7);
+      reminderDate = new Date(date.getTime() - minutes * 60000);
+    }
 
     await LocalNotifications.schedule({
       notifications: [{
-        id: route.id,
+        id: Number(route.id),
         title: '¡Tu ruta comienza pronto!',
-        body: route.title + ' comienza en 30 minutos.',
+        body: route.title + ' comienza en ' + minutes + ' minutos.',
         schedule: {
-          at: date,
+          at: reminderDate,
           every: 'week',
           allowWhileIdle: true
         },
         sound: 'default'
       }]
     });
+
   } catch (error) {
     console.error(error);
   }
+}
+
+function options(selected) {
+  return [5, 15, 30, 60].map(n =>
+    `<option value="${n}" ${Number(selected) === n ? 'selected' : ''}>${n} minutos antes</option>`
+  ).join('');
 }
 
 function render() {
@@ -71,7 +95,7 @@ function render() {
 
     <dialog id="dialog">
       <form id="form">
-        <h2>Nueva ruta</h2>
+        <h2 id="dialogTitle">Nueva ruta</h2>
 
         <label>Nombre de la ruta</label>
         <input id="title" required placeholder="Ej. Lakewood">
@@ -84,6 +108,19 @@ function render() {
         <label>Hora de la ruta</label>
         <input id="time" type="time" value="08:00" required>
 
+        <label>Recordatorio</label>
+        <select id="reminderMinutes">
+          ${options(30)}
+        </select>
+
+        <label>
+          <input id="reminderEnabled" type="checkbox" checked>
+          Activar notificación con sonido
+        </label>
+
+        <label>Enlace de Google Maps</label>
+        <input id="mapUrl" type="url" placeholder="Pega aquí el enlace">
+
         <button type="submit">Guardar</button>
         <button type="button" id="close">Cancelar</button>
       </form>
@@ -93,70 +130,174 @@ function render() {
   const list = document.querySelector('#routes');
 
   list.innerHTML = days.map((day,i) => {
-    const items = routes.filter(r => r.day === i);
+    const items = routes.filter(r => Number(r.day) === i);
 
     if (!items.length) return '';
 
     return `
       <section>
         <h2>${day}</h2>
+
         ${items.map(r => `
           <div class="route">
             <strong>${r.time}</strong>
             <span>${r.title}</span>
+            <button data-edit="${r.id}">Editar</button>
             <button data-delete="${r.id}">✕</button>
+
+            <div style="width:100%">
+              <label>Recordatorio:</label>
+              <select data-minutes="${r.id}">
+                ${options(r.reminderMinutes || 30)}
+              </select>
+
+              <label>
+                <input type="checkbox"
+                  data-toggle="${r.id}"
+                  ${r.reminderEnabled !== false ? 'checked' : ''}>
+                ${r.reminderEnabled !== false ? 'Aviso activado' : 'Aviso desactivado'}
+              </label>
+
+              ${r.mapUrl ? `<button data-map="${r.id}">📍 Google Maps</button>` : ''}
+            </div>
           </div>
         `).join('')}
       </section>
     `;
   }).join('') || '<p>No tienes rutas todavía.</p>';
 
+  const dialog = document.querySelector('#dialog');
+  const form = document.querySelector('#form');
+
   document.querySelector('#add').onclick = () => {
-    document.querySelector('#dialog').showModal();
+    editingId = null;
+    form.reset();
+    document.querySelector('#dialogTitle').textContent = 'Nueva ruta';
+    document.querySelector('#time').value = '08:00';
+    document.querySelector('#reminderMinutes').value = '30';
+    dialog.showModal();
   };
 
-  document.querySelector('#close').onclick = () => {
-    document.querySelector('#dialog').close();
-  };
+  document.querySelector('#close').onclick = () => dialog.close();
 
   document.querySelectorAll('[data-delete]').forEach(button => {
     button.onclick = async () => {
       const id = Number(button.dataset.delete);
-
-      await LocalNotifications.cancel({
-        notifications: [{ id }]
-      });
-
-      routes = routes.filter(r => r.id !== id);
+      await cancelReminder(id);
+      routes = routes.filter(r => Number(r.id) !== id);
       await save();
       render();
     };
   });
 
-  document.querySelector('#form').onsubmit = async event => {
+  document.querySelectorAll('[data-edit]').forEach(button => {
+    button.onclick = () => {
+      const r = routes.find(x => Number(x.id) === Number(button.dataset.edit));
+      if (!r) return;
+
+      editingId = Number(r.id);
+
+      document.querySelector('#dialogTitle').textContent = 'Editar ruta';
+      document.querySelector('#title').value = r.title;
+      document.querySelector('#day').value = r.day;
+      document.querySelector('#time').value = r.time;
+      document.querySelector('#reminderMinutes').value = r.reminderMinutes || 30;
+      document.querySelector('#reminderEnabled').checked = r.reminderEnabled !== false;
+      document.querySelector('#mapUrl').value = r.mapUrl || '';
+
+      dialog.showModal();
+    };
+  });
+
+  document.querySelectorAll('[data-toggle]').forEach(input => {
+    input.onchange = async () => {
+      const r = routes.find(x => Number(x.id) === Number(input.dataset.toggle));
+      if (!r) return;
+
+      r.reminderEnabled = input.checked;
+      await save();
+      await notify(r);
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-minutes]').forEach(select => {
+    select.onchange = async () => {
+      const r = routes.find(x => Number(x.id) === Number(select.dataset.minutes));
+      if (!r) return;
+
+      r.reminderMinutes = Number(select.value);
+      await save();
+      await notify(r);
+    };
+  });
+
+  document.querySelectorAll('[data-map]').forEach(button => {
+    button.onclick = () => {
+      const r = routes.find(x => Number(x.id) === Number(button.dataset.map));
+      if (r && r.mapUrl) window.open(r.mapUrl, '_blank');
+    };
+  });
+
+  form.onsubmit = async event => {
     event.preventDefault();
 
-    const route = {
-      id: Math.floor(Math.random() * 2000000000) + 1,
+    const mapUrl = document.querySelector('#mapUrl').value.trim();
+
+    if (mapUrl && !/^https?:\/\//i.test(mapUrl)) {
+      alert('El enlace debe comenzar con https:// o http://');
+      return;
+    }
+
+    const data = {
       title: document.querySelector('#title').value.trim(),
       day: Number(document.querySelector('#day').value),
-      time: document.querySelector('#time').value
+      time: document.querySelector('#time').value,
+      reminderMinutes: Number(document.querySelector('#reminderMinutes').value),
+      reminderEnabled: document.querySelector('#reminderEnabled').checked,
+      mapUrl
     };
 
-    routes.push(route);
+    let route;
+
+    if (editingId !== null) {
+      route = routes.find(r => Number(r.id) === editingId);
+      if (!route) return;
+      Object.assign(route, data);
+    } else {
+      route = {
+        id: Math.floor(Math.random() * 2000000000) + 1,
+        ...data
+      };
+      routes.push(route);
+    }
 
     await save();
     await notify(route);
 
-    document.querySelector('#dialog').close();
+    dialog.close();
     render();
   };
 }
 
 async function start() {
   const saved = await Preferences.get({ key: 'routes' });
+
   routes = saved.value ? JSON.parse(saved.value) : [];
+
+  routes = routes.map(r => ({
+    ...r,
+    reminderMinutes: Number(r.reminderMinutes || 30),
+    reminderEnabled: r.reminderEnabled !== false,
+    mapUrl: r.mapUrl || ''
+  }));
+
+  await save();
   render();
+
+  for (const r of routes) {
+    if (r.reminderEnabled) await notify(r);
+  }
 }
 
 start();
