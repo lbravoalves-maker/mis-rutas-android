@@ -1,4 +1,3 @@
-
 * {
   box-sizing: border-box;
 }
@@ -27,7 +26,7 @@ header p {
 }
 
 main {
-  max-width: 600px;
+  max-width: 680px;
   margin: auto;
   padding: 20px;
 }
@@ -35,17 +34,27 @@ main {
 button {
   border: none;
   border-radius: 12px;
-  padding: 14px;
+  padding: 13px 14px;
   background: #3478f6;
   color: white;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: bold;
   cursor: pointer;
 }
 
+button:active {
+  transform: scale(.98);
+}
+
 #add {
   width: 100%;
+  margin-bottom: 10px;
+}
+
+.delete-all {
+  width: 100%;
   margin-bottom: 25px;
+  background: #56313a;
 }
 
 section {
@@ -58,33 +67,102 @@ section h2 {
 }
 
 .route {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  display: block;
+  min-width: 0;
   padding: 14px;
-  margin: 9px 0;
+  margin: 10px 0;
   background: #1a2940;
   border: 1px solid #34445c;
   border-radius: 12px;
 }
 
-.route strong {
-  color: #8eb5ff;
+.route-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  min-width: 0;
 }
 
-.route span {
-  flex: 1;
+.route-time {
+  color: #8eb5ff;
+  white-space: nowrap;
+}
+
+.route-name {
+  flex: 1 1 180px;
+  min-width: 0;
   overflow-wrap: anywhere;
+  word-break: break-word;
+  font-weight: 600;
 }
 
 .route button {
+  padding: 9px 11px;
+}
+
+.edit-button {
+  background: #3478f6;
+}
+
+.route .delete-button {
   background: #56313a;
-  padding: 8px 12px;
+}
+
+.route-date,
+.created-date {
+  display: block;
+  margin-top: 8px;
+  color: #aab6c8;
+  font-size: 12px;
+}
+
+.route-controls {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(130px, 1.5fr);
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #34445c;
+}
+
+.route-controls label {
+  margin: 0;
+  color: #aab6c8;
+  font-size: 13px;
+}
+
+.route-controls select {
+  margin: 0;
+}
+
+.route-controls .toggle-label {
+  grid-column: 1 / -1;
+}
+
+.route-controls .map-button {
+  grid-column: 1 / -1;
+  justify-self: start;
+  background: #245b50;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.toggle-label input {
+  width: auto;
+  margin: 0;
 }
 
 dialog {
-  width: 90%;
-  max-width: 400px;
+  width: min(92%, 440px);
+  max-height: 90vh;
+  overflow-y: auto;
   background: #1a2940;
   color: white;
   border: 1px solid #43536b;
@@ -96,12 +174,17 @@ dialog::backdrop {
   background: #000b;
 }
 
+dialog h2 {
+  margin-top: 0;
+}
+
 label {
   display: block;
   margin: 15px 0 6px;
 }
 
-input, select {
+input,
+select {
   width: 100%;
   padding: 13px;
   margin: 7px 0;
@@ -112,6 +195,58 @@ input, select {
   font-size: 16px;
 }
 
-dialog button {
+.field-help {
+  display: block;
+  color: #aab6c8;
+  line-height: 1.4;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.form-actions button {
+  flex: 1;
   margin-top: 15px;
+}
+
+.secondary-button {
+  background: #43536b;
+}
+
+.empty-state {
+  color: #aab6c8;
+  text-align: center;
+  padding: 25px 10px;
+}
+
+@media (max-width: 480px) {
+  main {
+    padding: 14px;
+  }
+
+  .route-top {
+    gap: 7px;
+  }
+
+  .route-name {
+    flex-basis: 100%;
+    order: 2;
+  }
+
+  .route-top .edit-button {
+    margin-left: auto;
+  }
+
+  .route-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .route-controls .toggle-label,
+  .route-controls .map-button {
+    grid-column: 1;
+  }
 }
