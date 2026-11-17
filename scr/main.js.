@@ -8,26 +8,45 @@ let routes = [];
 let editingId = null;
 
 async function save() {
-  await Preferences.set({
-    key: 'routes',
-    value: JSON.stringify(routes)
-  });
+  await Preferences.set({ key: 'routes', value: JSON.stringify(routes) });
 }
 
 async function cancelReminder(id) {
   try {
-    await LocalNotifications.cancel({
-      notifications: [{ id: Number(id) }]
-    });
+    await LocalNotifications.cancel({ notifications: [{ id: Number(id) }] });
   } catch (e) {
     console.log(e);
   }
 }
 
+function reminderOptions(selected) {
+  return [
+    ['none', 'Ninguno'],
+    ['5', '5 minutos antes'],
+    ['15', '15 minutos antes'],
+    ['30', '30 minutos antes'],
+    ['60', '60 minutos antes']
+  ].map(([n, label]) =>
+    `<option value="${n}" ${String(selected) === n ? 'selected' : ''}>${label}</option>`
+  ).join('');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;',
+    '"': '&quot;', "'": '&#39;'
+  })[c]);
+}
+
+function formatDate(value) {
+  if (!value) return '';
+  return new Date(value + 'T12:00:00').toLocaleDateString('es-US');
+}
+
 async function notify(route) {
   await cancelReminder(route.id);
 
-  if (route.reminderEnabled === false) return;
+  if (route.reminderEnabled === false || route.reminderMinutes === null) return;
 
   try {
     let permission = await LocalNotifications.checkPermissions();
@@ -40,32 +59,38 @@ async function notify(route) {
 
     const minutes = Number(route.reminderMinutes || 30);
     const [hour, minute] = route.time.split(':').map(Number);
-
     const now = new Date();
-    const date = new Date();
+    let date;
 
-    const difference = (route.day - now.getDay() + 7) % 7;
+    if (route.date) {
+      date = new Date(route.date + 'T00:00:00');
+      date.setHours(hour, minute, 0, 0);
 
-    date.setDate(date.getDate() + difference);
-    date.setHours(hour, minute, 0, 0);
+      if (date.getTime() - minutes * 60000 <= now.getTime()) return;
+    } else {
+      date = new Date();
+      const difference = (route.day - now.getDay() + 7) % 7;
+      date.setDate(date.getDate() + difference);
+      date.setHours(hour, minute, 0, 0);
 
-    let reminderDate = new Date(date.getTime() - minutes * 60000);
-
-    while (reminderDate <= now) {
-      date.setDate(date.getDate() + 7);
-      reminderDate = new Date(date.getTime() - minutes * 60000);
+      while (date.getTime() - minutes * 60000 <= now.getTime()) {
+        date.setDate(date.getDate() + 7);
+      }
     }
+
+    const schedule = {
+      at: new Date(date.getTime() - minutes * 60000),
+      allowWhileIdle: true
+    };
+
+    if (!route.date) schedule.every = 'week';
 
     await LocalNotifications.schedule({
       notifications: [{
         id: Number(route.id),
         title: '¡Tu ruta comienza pronto!',
         body: route.title + ' comienza en ' + minutes + ' minutos.',
-        schedule: {
-          at: reminderDate,
-          every: 'week',
-          allowWhileIdle: true
-        },
+        schedule,
         sound: 'default'
       }]
     });
@@ -75,10 +100,35 @@ async function notify(route) {
   }
 }
 
-function options(selected) {
-  return [5, 15, 30, 60].map(n =>
-    `<option value="${n}" ${Number(selected) === n ? 'selected' : ''}>${n} minutos antes</option>`
-  ).join('');
+function routeCard(r) {
+  return `
+    <article class="route">
+      <div class="route-top">
+        <strong class="route-time">${r.time}</strong>
+        <span class="route-name">${escapeHtml(r.title)}</span>
+        <button class="edit-button" data-edit="${r.id}">Editar</button>
+        <button class="delete-button" data-delete="${r.id}">✕</button>
+      </div>
+
+      ${r.date ? `<small class="route-date">📅 Fecha de ruta: ${formatDate(r.date)}</small>` : ''}
+      ${r.createdAt ? `<small class="created-date">Registrada: ${formatDate(r.createdAt.slice(0,10))}</small>` : ''}
+
+      <div class="route-controls">
+        <label>Recordatorio</label>
+        <select data-minutes="${r.id}">
+          ${reminderOptions(r.reminderEnabled === false ? 'none' : r.reminderMinutes)}
+        </select>
+
+        <label class="toggle-label">
+          <input type="checkbox" data-toggle="${r.id}"
+          ${r.reminderEnabled !== false ? 'checked' : ''}>
+          Notificación con sonido
+        </label>
+
+        ${r.mapUrl ? `<button class="map-button" data-map="${r.id}">📍 Google Maps</button>` : ''}
+      </div>
+    </article>
+  `;
 }
 
 function render() {
@@ -90,6 +140,7 @@ function render() {
 
     <main>
       <button id="add">＋ Agregar ruta</button>
+      <button id="deleteAll" class="delete-all">🗑 Borrar todos los registros</button>
       <div id="routes"></div>
     </main>
 
@@ -102,18 +153,24 @@ function render() {
 
         <label>Día de la semana</label>
         <select id="day">
-          ${days.map((d,i)=>`<option value="${i}">${d}</option>`).join('')}
+          ${days.map((d,i) => `<option value="${i}">${d}</option>`).join('')}
         </select>
+
+        <label>Fecha específica (opcional)</label>
+        <input id="date" type="date">
+
+        <small class="field-help">
+          Déjala vacía para una ruta semanal.
+          Si eliges una fecha, será una ruta adicional de un solo día.
+        </small>
 
         <label>Hora de la ruta</label>
         <input id="time" type="time" value="08:00" required>
 
         <label>Recordatorio</label>
-        <select id="reminderMinutes">
-          ${options(30)}
-        </select>
+        <select id="reminderMinutes">${reminderOptions('30')}</select>
 
-        <label>
+        <label class="toggle-label">
           <input id="reminderEnabled" type="checkbox" checked>
           Activar notificación con sonido
         </label>
@@ -121,67 +178,79 @@ function render() {
         <label>Enlace de Google Maps</label>
         <input id="mapUrl" type="url" placeholder="Pega aquí el enlace">
 
-        <button type="submit">Guardar</button>
-        <button type="button" id="close">Cancelar</button>
+        <div class="form-actions">
+          <button type="submit">Guardar</button>
+          <button type="button" id="close" class="secondary-button">Cancelar</button>
+        </div>
       </form>
     </dialog>
   `;
 
   const list = document.querySelector('#routes');
 
-  list.innerHTML = days.map((day,i) => {
-    const items = routes.filter(r => Number(r.day) === i);
+  const weekly = routes.filter(r => !r.date);
+  const additional = routes.filter(r => r.date)
+    .sort((a,b) => a.date.localeCompare(b.date));
 
-    if (!items.length) return '';
+  list.innerHTML =
+    days.map((day,i) => {
+      const items = weekly.filter(r => Number(r.day) === i)
+        .sort((a,b) => a.time.localeCompare(b.time));
 
-    return `
-      <section>
-        <h2>${day}</h2>
+      return items.length
+        ? `<section><h2>${day}</h2>${items.map(routeCard).join('')}</section>`
+        : '';
+    }).join('') +
+    (additional.length
+      ? `<section><h2>📌 Rutas adicionales</h2>${additional.map(routeCard).join('')}</section>`
+      : '');
 
-        ${items.map(r => `
-          <div class="route">
-            <strong>${r.time}</strong>
-            <span>${r.title}</span>
-            <button data-edit="${r.id}">Editar</button>
-            <button data-delete="${r.id}">✕</button>
-
-            <div style="width:100%">
-              <label>Recordatorio:</label>
-              <select data-minutes="${r.id}">
-                ${options(r.reminderMinutes || 30)}
-              </select>
-
-              <label>
-                <input type="checkbox"
-                  data-toggle="${r.id}"
-                  ${r.reminderEnabled !== false ? 'checked' : ''}>
-                ${r.reminderEnabled !== false ? 'Aviso activado' : 'Aviso desactivado'}
-              </label>
-
-              ${r.mapUrl ? `<button data-map="${r.id}">📍 Google Maps</button>` : ''}
-            </div>
-          </div>
-        `).join('')}
-      </section>
-    `;
-  }).join('') || '<p>No tienes rutas todavía.</p>';
+  if (!routes.length) {
+    list.innerHTML = '<p class="empty-state">No tienes rutas todavía.</p>';
+  }
 
   const dialog = document.querySelector('#dialog');
   const form = document.querySelector('#form');
+  const reminder = document.querySelector('#reminderMinutes');
+  const enabled = document.querySelector('#reminderEnabled');
 
   document.querySelector('#add').onclick = () => {
     editingId = null;
     form.reset();
     document.querySelector('#dialogTitle').textContent = 'Nueva ruta';
     document.querySelector('#time').value = '08:00';
-    document.querySelector('#reminderMinutes').value = '30';
+    reminder.value = '30';
+    enabled.checked = true;
     dialog.showModal();
   };
 
   document.querySelector('#close').onclick = () => dialog.close();
 
+  reminder.onchange = () => {
+    enabled.checked = reminder.value !== 'none';
+  };
+
+  enabled.onchange = () => {
+    if (!enabled.checked) reminder.value = 'none';
+    else if (reminder.value === 'none') reminder.value = '30';
+  };
+
+  document.querySelector('#deleteAll').onclick = async () => {
+    if (!routes.length) return;
+
+    if (!confirm('¿Quieres borrar TODOS los registros?')) return;
+
+    for (const r of routes) await cancelReminder(r.id);
+
+    routes = [];
+    await save();
+    render();
+  };
+
   document.querySelectorAll('[data-delete]').forEach(button => {
     button.onclick = async () => {
+      if (!confirm('¿Eliminar esta ruta?')) return;
+
       const id = Number(button.dataset.delete);
       await cancelReminder(id);
       routes = routes.filter(r => Number(r.id) !== id);
@@ -200,9 +269,10 @@ function render() {
       document.querySelector('#dialogTitle').textContent = 'Editar ruta';
       document.querySelector('#title').value = r.title;
       document.querySelector('#day').value = r.day;
+      document.querySelector('#date').value = r.date || '';
       document.querySelector('#time').value = r.time;
-      document.querySelector('#reminderMinutes').value = r.reminderMinutes || 30;
-      document.querySelector('#reminderEnabled').checked = r.reminderEnabled !== false;
+      reminder.value = r.reminderEnabled === false ? 'none' : String(r.reminderMinutes || 30);
+      enabled.checked = r.reminderEnabled !== false;
       document.querySelector('#mapUrl').value = r.mapUrl || '';
 
       dialog.showModal();
@@ -215,6 +285,8 @@ function render() {
       if (!r) return;
 
       r.reminderEnabled = input.checked;
+      r.reminderMinutes = input.checked ? (r.reminderMinutes || 30) : null;
+
       await save();
       await notify(r);
       render();
@@ -226,16 +298,19 @@ function render() {
       const r = routes.find(x => Number(x.id) === Number(select.dataset.minutes));
       if (!r) return;
 
-      r.reminderMinutes = Number(select.value);
+      r.reminderEnabled = select.value !== 'none';
+      r.reminderMinutes = select.value === 'none' ? null : Number(select.value);
+
       await save();
       await notify(r);
+      render();
     };
   });
 
   document.querySelectorAll('[data-map]').forEach(button => {
     button.onclick = () => {
       const r = routes.find(x => Number(x.id) === Number(button.dataset.map));
-      if (r && r.mapUrl) window.open(r.mapUrl, '_blank');
+      if (r?.mapUrl) window.open(r.mapUrl, '_blank');
     };
   });
 
@@ -249,12 +324,15 @@ function render() {
       return;
     }
 
+    const reminderValue = reminder.value;
+
     const data = {
       title: document.querySelector('#title').value.trim(),
       day: Number(document.querySelector('#day').value),
+      date: document.querySelector('#date').value || null,
       time: document.querySelector('#time').value,
-      reminderMinutes: Number(document.querySelector('#reminderMinutes').value),
-      reminderEnabled: document.querySelector('#reminderEnabled').checked,
+      reminderMinutes: reminderValue === 'none' ? null : Number(reminderValue),
+      reminderEnabled: reminderValue !== 'none' && enabled.checked,
       mapUrl
     };
 
@@ -267,6 +345,7 @@ function render() {
     } else {
       route = {
         id: Math.floor(Math.random() * 2000000000) + 1,
+        createdAt: new Date().toISOString(),
         ...data
       };
       routes.push(route);
@@ -287,7 +366,10 @@ async function start() {
 
   routes = routes.map(r => ({
     ...r,
-    reminderMinutes: Number(r.reminderMinutes || 30),
+    date: r.date || null,
+    createdAt: r.createdAt || null,
+    reminderMinutes: r.reminderEnabled === false
+      ? null : Number(r.reminderMinutes || 30),
     reminderEnabled: r.reminderEnabled !== false,
     mapUrl: r.mapUrl || ''
   }));
